@@ -1,51 +1,79 @@
 import numpy as np
 from scipy.ndimage import uniform_filter
 
-def unwrap_phase_fft(wrapped, window=5):
+def unwrap_phase_fft(wrapped, window=5, threshold_factor=1.5):
     """
-    Unwrap a 2D wrapped phase image using an FFT-based least-squares approach
-    with an optional quality filtering pre-step.
+    Unwrap a 2D wrapped phase image using an FFT-based least-squares approach 
+    with an adaptive, quality filtering pre-step.
     
-    The unwrapped phase φ_unwrapped at a pixel (i, j) can be thought of as the sum
-    of the wrapped phase φ_wrapped at (i, j) plus an integer multiple of 2π that
-    accounts for the cumulative phase differences (Δφ) between neighboring pixels:
+    The underlying concept is that the unwrapped phase φ_unwrapped at each pixel (i, j)
+    can be expressed as:
     
-       φ_unwrapped(i, j) = φ_wrapped(i, j) + 2π ∑ₖ₌₁ⁱ ∑ₗ₌₁ʲ Δφ(k, l)
+       φ_unwrapped(i, j) = φ_wrapped(i, j) + 2π · (integer offset)
     
-    This function works as follows:
-      1. It replaces any NaNs with the mean of valid phase values.
-      2. It computes a quality map based on the local variance of the phase gradient.
-         Unreliable pixels (with high local variance) are replaced by a locally
-         smoothed (circular-mean) value. This step is inspired by methods such as the
-         derivative variance correlation map (Lu et al., 2007). Note that this pre-filtering
-         may affect phase values near the edges.
-      3. It computes finite differences (phase gradients) along x and y.
-      4. It wraps these finite differences to the interval [-π, π].
-      5. It expands the computed differences back to the full image size.
-      6. It builds the divergence (the right-hand side of the Poisson equation) by
-         taking differences of these expanded gradients.
-      7. It solves the Poisson equation via FFT to recover the unwrapped phase.
+    The function performs the following main steps:
     
-    The returned unwrapped phase is masked to have the same geometry as the input array.
+      1. **NaN Replacement:** 
+         Replace any NaNs in the wrapped phase image with the mean of the valid values.
+      
+      2. **Adaptive Quality Filtering:**
+         - Compute finite differences along the horizontal and vertical directions 
+           (dx_q, dy_q) to estimate local phase gradients.
+         - Calculate the gradient magnitude over the overlapping region.
+         - Using a uniform filter, compute the local mean and local mean of squared gradients 
+           to derive the local variance and local standard deviation.
+         - Build a spatially adaptive threshold at each pixel as:
+               
+               adaptive_threshold = local_mean + threshold_factor * local_std
+               
+         - Construct a reliability mask where pixels with a gradient magnitude below the 
+           adaptive threshold are considered reliable.
+         - Replace unreliable pixels (those where the mask is False) with a locally 
+           smoothed phase value. The smoothing is performed using a circular (complex) average 
+           computed from the complex representation of the wrapped phase.
+      
+      3. **Finite Difference Calculation:**
+         - Compute the phase gradients (dx, dy) from the filtered (and quality-enhanced) 
+           phase.
+         - Wrap these gradients to the principal value interval [-π, π].
+      
+      4. **Expansion and Divergence Calculation:**
+         - Expand the computed gradients to full image size.
+         - Compute the divergence of the gradient field, which forms the right-hand side (RHS)
+           of the Poisson equation.
+      
+      5. **Poisson Equation Solving:**
+         - Solve the discrete Poisson equation (∇² φ = RHS) using FFT. In the frequency domain, 
+           the Laplacian becomes a multiplicative factor that is inverted.
+         - Set the zero-frequency (DC) component to 0 to remove the ambiguity in absolute phase.
+      
+      6. **Output:**
+         - The resulting unwrapped phase image is returned with the same geometry as the input.
     
     Parameters
     ----------
     wrapped : 2D numpy array
-        Wrapped phase in radians (ideally in the interval [-π, π]; data may span a wider range).
-        The array may contain NaNs.
+        Wrapped phase image in radians. Although ideally the phase is in [-π, π],
+        the data may span a wider range and may contain NaNs.
     window : int, optional
-        Size of the local window used for quality filtering (default is 5).
+        Size of the local window (in pixels) used for computing local statistics for 
+        quality filtering. Default is 5.
+    threshold_factor : float, optional
+        Multiplicative factor for the local standard deviation when computing the 
+        adaptive threshold. A higher value makes the threshold more lenient. Default is 1.5.
     
     Returns
     -------
     unwrapped : 2D numpy array
-        Unwrapped phase in radians. This continuous phase field can be converted to physical
-        displacement (e.g., using d = unwrapped_phase * (λ / (4π))) and is masked to the input geometry.
+        The unwrapped phase image in radians. This continuous phase field can be 
+        further used (e.g., multiplied by a scaling factor) to convert into physical 
+        displacement or other quantities. The geometry of the output is the same as 
+        the input.
     
     References
     ----------
-    Lu, Y., Wang, X., & Zhang, X. (2007). Weighted least-squares phase unwrapping algorithm based on 
-    derivative variance correlation map. Optik, 118(2), 62–66.
+    Lu, Y., Wang, X., & Zhang, X. (2007). Weighted least-squares phase unwrapping algorithm 
+    based on derivative variance correlation map. Optik, 118(2), 62–66.
     """
     # -------------------------------------------------------------------------
     # 1. Ensure no NaNs are present.
@@ -73,13 +101,15 @@ def unwrap_phase_fft(wrapped, window=5):
     # Compute the local mean and the local mean of squared gradients using a uniform filter.
     local_mean = uniform_filter(grad_mag, size=window)
     local_mean_sq = uniform_filter(grad_mag**2, size=window)
-    #local_variance = local_mean_sq - local_mean**2
+    local_variance = local_mean_sq - local_mean**2
+    local_std = np.sqrt(np.maximum(local_variance, 0))
 
-    # Define an adaptive threshold based on the median and standard deviation of grad_mag.
-    threshold = np.median(grad_mag) + np.std(grad_mag)
+    # Build a spatially adaptive threshold:
+    # For each pixel, threshold = local_mean + threshold_factor * local_std.
+    adaptive_threshold = local_mean + threshold_factor * local_std
 
     # Create a reliability mask: reliable pixels have local gradient magnitude below the threshold.
-    reliable_mask = grad_mag < threshold
+    reliable_mask = grad_mag < adaptive_threshold
     # Pad the mask back to the full image size.
     mask_full = np.pad(reliable_mask, ((1, 0), (1, 0)), mode='edge')
 
@@ -88,10 +118,10 @@ def unwrap_phase_fft(wrapped, window=5):
     wrapped_complex = np.exp(1j * wrapped)
     smoothed_real = uniform_filter(wrapped_complex.real, size=window)
     smoothed_imag = uniform_filter(wrapped_complex.imag, size=window)
-    smoothed = np.angle(smoothed_real + 1j * smoothed_imag)
+    smoothed_phase = np.angle(smoothed_real + 1j * smoothed_imag)
 
     # Replace unreliable pixels (where mask is False) with the locally smoothed phase value.
-    wrapped_filtered = np.where(mask_full, wrapped, smoothed)
+    wrapped_filtered = np.where(mask_full, wrapped, smoothed_phase)
     
     # NOTE: The fill value replacement and quality filtering may affect phase values at the edges.
     # Ensure that the geometry of the input is preserved.
