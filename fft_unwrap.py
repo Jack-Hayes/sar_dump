@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.ndimage import uniform_filter
 
+# TODO: add an option for a “global” correlator to reduce noise (like MGM from NASA ASP)
+# https://stereopipeline.readthedocs.io/en/latest/stereo_algorithms.html#original-implementation-of-mgm
 def unwrap_phase_fft(wrapped, window=5, threshold_factor=1.5):
     """
     Unwrap a 2D wrapped phase image using an FFT-based least-squares approach 
