@@ -3,6 +3,7 @@ from scipy.ndimage import uniform_filter
 
 # TODO: add an option for a “global” correlator to reduce noise (like MGM from NASA ASP)
 # https://stereopipeline.readthedocs.io/en/latest/stereo_algorithms.html#original-implementation-of-mgm
+# NOTE: i actually tried implementing this but it killed my kernel as it was too computationally expensive, will need to revisit
 def unwrap_phase_fft(wrapped, window=5, threshold_factor=1.5):
     """
     Unwrap a 2D wrapped phase image using an FFT-based least-squares approach 
@@ -80,10 +81,14 @@ def unwrap_phase_fft(wrapped, window=5, threshold_factor=1.5):
     # -------------------------------------------------------------------------
     # 1. Ensure no NaNs are present.
     # NaNs will disrupt arithmetic and FFT computations.
-    # Replace them with the mean of valid values so that further computations are not affected.
+    # draw synthetic phase values from a zero‐mean Gaussian whose standard deviation matches the observed wrapped‐phase variability
+    # and fill values
     if np.isnan(wrapped).any():
-        fill_value = np.nanmean(wrapped)  # Compute mean of all valid phase values.
-        wrapped = np.where(np.isnan(wrapped), fill_value, wrapped)  # Replace NaNs.
+        valid = wrapped[np.isfinite(wrapped)]
+        mu, sigma = np.mean(valid), np.std(valid)
+        # Generate noise for each NaN position
+        noise = np.random.normal(loc=mu, scale=sigma, size=wrapped.shape)
+        wrapped = np.where(np.isnan(wrapped), noise, wrapped)  # Fill NaNs
 
     # Get the dimensions of the input wrapped phase image.
     M, N = wrapped.shape
