@@ -121,3 +121,45 @@ def calculate_coherence_fast(dsR: xr.DataArray,
         coh = coh.rio.write_crs(dsR.rio.crs)          # keep CRS if present
 
     return coh
+
+def calculate_coherence_numpy(ref: np.ndarray,
+                              sec: np.ndarray,
+                              window: int = 7,
+                              min_valid_ratio: float = 0.5) -> np.ndarray:
+    """
+    Compute sliding‐window coherence for two 2D complex arrays,
+    using 'reflect' padding so edges aren’t zero‐padded.
+    """
+    if window % 2 == 0:
+        window += 1
+
+    ifg   = ref * np.conj(sec)
+    I1, I2 = np.abs(ref)**2, np.abs(sec)**2
+
+    real_ifg, imag_ifg = np.real(ifg), np.imag(ifg)
+    valid = np.isfinite(ifg).astype(float)
+
+    # count of valid pixels, with reflect so edges count correctly
+    count     = uniform_filter(valid,    size=window, mode='reflect')
+    min_count = min_valid_ratio * window * window
+
+    # sum of values in each window
+    sum_re = uniform_filter(np.nan_to_num(real_ifg), size=window, mode='reflect')
+    sum_im = uniform_filter(np.nan_to_num(imag_ifg), size=window, mode='reflect')
+    sum_I1 = uniform_filter(np.nan_to_num(I1),       size=window, mode='reflect')
+    sum_I2 = uniform_filter(np.nan_to_num(I2),       size=window, mode='reflect')
+
+    # normalize sums to get means
+    with np.errstate(divide='ignore', invalid='ignore'):
+        m_re = sum_re * (window*window / count)
+        m_im = sum_im * (window*window / count)
+        m_I1 = sum_I1 * (window*window / count)
+        m_I2 = sum_I2 * (window*window / count)
+
+    mean_ifg = m_re + 1j*m_im
+    num = np.abs(mean_ifg)
+    den = np.sqrt(m_I1 * m_I2) + 1e-10
+
+    coh = num / den
+    coh[count < min_count] = np.nan
+    return np.clip(coh, 0, 1)
