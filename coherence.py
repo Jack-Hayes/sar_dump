@@ -126,40 +126,53 @@ def calculate_coherence_numpy(ref: np.ndarray,
                               sec: np.ndarray,
                               window: int = 7,
                               min_valid_ratio: float = 0.5) -> np.ndarray:
-    """
-    Compute sliding‐window coherence for two 2D complex arrays,
-    using 'reflect' padding so edges aren’t zero‐padded.
-    """
+    # ... (full corrected code as provided above) ...
+    if not isinstance(ref, np.ndarray) or not isinstance(sec, np.ndarray):
+        raise TypeError("Inputs ref and sec must be numpy arrays.")
+    if ref.shape != sec.shape:
+        raise ValueError("Inputs ref and sec must have the same shape.")
+    if ref.dtype.kind != 'c':
+        ref = ref.astype(np.complex64)
+    if sec.dtype.kind != 'c':
+        sec = sec.astype(np.complex64)
+
     if window % 2 == 0:
         window += 1
 
-    ifg   = ref * np.conj(sec)
-    I1, I2 = np.abs(ref)**2, np.abs(sec)**2
+    ifg = ref * np.conj(sec)
+    I1_abs_sq = np.abs(ref)**2
+    I2_abs_sq = np.abs(sec)**2
 
     real_ifg, imag_ifg = np.real(ifg), np.imag(ifg)
-    valid = np.isfinite(ifg).astype(float)
 
-    # count of valid pixels, with reflect so edges count correctly
-    count     = uniform_filter(valid,    size=window, mode='reflect')
-    min_count = min_valid_ratio * window * window
+    valid_mask = np.isfinite(ifg) & np.isfinite(I1_abs_sq) & np.isfinite(I2_abs_sq)
+    valid_mask_float = valid_mask.astype(float)
 
-    # sum of values in each window
-    sum_re = uniform_filter(np.nan_to_num(real_ifg), size=window, mode='reflect')
-    sum_im = uniform_filter(np.nan_to_num(imag_ifg), size=window, mode='reflect')
-    sum_I1 = uniform_filter(np.nan_to_num(I1),       size=window, mode='reflect')
-    sum_I2 = uniform_filter(np.nan_to_num(I2),       size=window, mode='reflect')
+    valid_pixel_proportion_in_window = uniform_filter(valid_mask_float, size=window, mode='reflect')
 
-    # normalize sums to get means
+    epsilon_div = 1e-9 
+
+    mean_re_nan_as_zero = uniform_filter(np.where(valid_mask, real_ifg, 0), size=window, mode='reflect')
+    mean_im_nan_as_zero = uniform_filter(np.where(valid_mask, imag_ifg, 0), size=window, mode='reflect')
+    mean_I1_nan_as_zero = uniform_filter(np.where(valid_mask, I1_abs_sq, 0), size=window, mode='reflect')
+    mean_I2_nan_as_zero = uniform_filter(np.where(valid_mask, I2_abs_sq, 0), size=window, mode='reflect')
+
     with np.errstate(divide='ignore', invalid='ignore'):
-        m_re = sum_re * (window*window / count)
-        m_im = sum_im * (window*window / count)
-        m_I1 = sum_I1 * (window*window / count)
-        m_I2 = sum_I2 * (window*window / count)
+        m_re = mean_re_nan_as_zero / (valid_pixel_proportion_in_window + epsilon_div)
+        m_im = mean_im_nan_as_zero / (valid_pixel_proportion_in_window + epsilon_div)
+        m_I1 = mean_I1_nan_as_zero / (valid_pixel_proportion_in_window + epsilon_div)
+        m_I2 = mean_I2_nan_as_zero / (valid_pixel_proportion_in_window + epsilon_div)
 
-    mean_ifg = m_re + 1j*m_im
-    num = np.abs(mean_ifg)
-    den = np.sqrt(m_I1 * m_I2) + 1e-10
+    avg_complex_ifg = m_re + 1j*m_im
+    coh_numerator = np.abs(avg_complex_ifg)
 
-    coh = num / den
-    coh[count < min_count] = np.nan
+    coh_denominator_val_sq = m_I1 * m_I2
+    coh_denominator = np.sqrt(np.maximum(coh_denominator_val_sq, 0)) + epsilon_div 
+
+    coh = coh_numerator / coh_denominator
+
+    coh[valid_pixel_proportion_in_window < min_valid_ratio] = np.nan
+    coh[coh_denominator < epsilon_div] = np.nan
+    coh[valid_pixel_proportion_in_window < epsilon_div] = np.nan
+
     return np.clip(coh, 0, 1)

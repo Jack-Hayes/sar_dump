@@ -97,3 +97,51 @@ def add_non_gaussian_noise(phi, thermal_sigma=0.05, speckle_coh=0.8, smooth_sigm
     # Combine and smooth to induce spatial correlation
     combined = phi + thermal_noise + speckle_phase
     return np.angle(np.exp(1j * ndi.gaussian_filter(combined, sigma=smooth_sigma)))
+
+def add_non_gaussian_noise_to_unwrapped_phase(phi_unwrapped, thermal_sigma=0.05, 
+                                             speckle_coh_param=0.7, smooth_sigma_noise=30,
+                                             epsilon_log=1e-9):
+    """
+    Adds non-Gaussian noise (thermal + speckle-like) to an UNWRAPPED phase signal
+    and returns an UNWRAPPED phase signal.
+    Parameters are illustrative.
+    """
+    phi_unwrapped = np.asarray(phi_unwrapped)
+    # Thermal noise: additive Gaussian phase noise (unwrapped)
+    thermal_noise_unwrapped = np.random.randn(*phi_unwrapped.shape) * thermal_sigma
+
+    # Speckle-like phase noise component (unwrapped)
+    # Simulate two random amplitude images
+    amp1_rand = np.random.rand(*phi_unwrapped.shape)
+    amp2_rand = np.random.rand(*phi_unwrapped.shape)
+    amp1 = np.sqrt(-2 * np.log(np.maximum(amp1_rand, epsilon_log)))
+    amp2 = np.sqrt(-2 * np.log(np.maximum(amp2_rand, epsilon_log)))
+
+    # Simulate two random base phase screens
+    ph1_rand = (np.random.rand(*phi_unwrapped.shape) * 2 -1) * np.pi
+    # Second phase screen is related to the first, to simulate some coherence if desired,
+    # but for a noise component, we can make it largely random or add a small coherent part.
+    # Here, we generate a random phase difference, effectively.
+    speckle_phase_noise_component = (np.random.rand(*phi_unwrapped.shape) * 2 - 1) * np.pi 
+    # A more complex model could use 'phi_unwrapped' to modulate this noise, but for additive noise:
+    
+    # This part is a simplification for creating a spatially varying random phase noise.
+    # The original add_non_gaussian_noise was creating an IFG. Here we want to create noise FOR phi_true.
+    # A simpler approach for adding a "speckle-like" texture to the unwrapped phase:
+    random_noise_field = np.random.randn(*phi_unwrapped.shape)
+    # Spatially correlate this random field to give it a "texture" rather than pixel-wise noise
+    correlated_speckle_like_noise = ndi.gaussian_filter(random_noise_field, sigma=smooth_sigma_noise/5) # Smaller sigma for texture
+    # Scale it - this is a bit arbitrary, depends on desired "strength" of this noise type
+    correlated_speckle_like_noise = correlated_speckle_like_noise / np.std(correlated_speckle_like_noise) * (thermal_sigma * 0.5) # Example scaling
+
+
+    # Combine unwrapped phase with unwrapped noise components
+    combined_unwrapped_phi = phi_unwrapped + thermal_noise_unwrapped + correlated_speckle_like_noise
+    
+    # Optionally smooth the combined signal if desired (smooth_sigma_noise for the final combined noise)
+    if smooth_sigma_noise > 0:
+        final_phi_with_noise = ndi.gaussian_filter(combined_unwrapped_phi, sigma=smooth_sigma_noise)
+    else:
+        final_phi_with_noise = combined_unwrapped_phi
+        
+    return final_phi_with_noise
