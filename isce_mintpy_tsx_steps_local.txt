@@ -1,0 +1,79 @@
+conda activate insar
+
+export PATH=${PATH}:${ISCE_HOME}/bin:${ISCE_HOME}/applications  # ISCE_HOME/STACK are set by conda
+
+echo "stanford_license = True" >> /home/jehayes/mambaforge/envs/insar/lib/python3.11/site-packages/isce/__init__.py
+
+mkdir -p ~/supersite/kamchatka/tsx_isce && cd ~/supersite/kamchatka/tsx_isce
+mkdir -p pairs/20230423_20230504 && cd pairs/20230423_20230504
+
+NOTE: having a lot of issues with sensor variable being None despite setting as TERRASARX...
+
+nano stripmap_ref.xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<stripmapApp name="tsx_processing">
+  <!-- Global sensor name -->
+  <property name="sensorname">TERRASARX</property>
+  
+  <!-- Reference component -->
+  <component name="reference">
+    <property name="headerfile1">/mnt/c/Users/JackE/supersite/kamchatka/tsx/TSX_20230423T194745.876_Kamchatka_C527_O087_D_R_SL016_SSC/dims_op_oc_dfd2_692868066_1/TSX-1.SAR.L1B/TSX1_SAR__SSC______SL_S_SRA_20230423T194745_20230423T194747/TSX1_SAR__SSC______SL_S_SRA_20230423T194745_20230423T194747.xml</property>
+    <property name="rslcfile1">/mnt/c/Users/JackE/supersite/kamchatka/tsx/TSX_20230423T194745.876_Kamchatka_C527_O087_D_R_SL016_SSC/dims_op_oc_dfd2_692868066_1/TSX-1.SAR.L1B/TSX1_SAR__SSC______SL_S_SRA_20230423T194745_20230423T194747/IMAGEDATA/IMAGE_HH_SRA_spot_016.cos</property>
+  </component>
+
+  <!-- Secondary component -->
+  <component name="secondary">
+    <property name="headerfile1">/mnt/c/Users/JackE/supersite/kamchatka/tsx/TSX_20230504T194746.452_Kamchatka_C528_O087_D_R_SL016_SSC/dims_op_oc_dfd2_692868066_1/TSX-1.SAR.L1B/TSX1_SAR__SSC______SL_S_SRA_20230504T194746_20230504T194748/TSX1_SAR__SSC______SL_S_SRA_20230504T194746_20230504T194748.xml</property>
+    <property name="rslcfile1">/mnt/c/Users/JackE/supersite/kamchatka/tsx/TSX_20230504T194746.452_Kamchatka_C528_O087_D_R_SL016_SSC/dims_op_oc_dfd2_692868066_1/TSX-1.SAR.L1B/TSX1_SAR__SSC______SL_S_SRA_20230504T194746_20230504T194748/IMAGEDATA/IMAGE_HH_SRA_spot_016.cos</property>
+  </component>
+
+  <!-- Processing parameters for Spotlight SSC -->
+  <property name="rangeLooks">4</property>
+  <property name="azimuthLooks">8</property>
+  
+  <!-- Unwrapping settings -->
+  <property name="dounwrap">True</property>
+  <property name="unwrappername">snaphu</property>
+  
+  <!-- (meters) -->
+  <property name="posting">5</property>
+</stripmapApp>
+
+
+stripmapApp.py stripmap_ref.xml
+
+Then do the same for secondary image...
+
+nano tsx_pair.xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<insarApp name="tsx_pair">
+  <!-- Try all three keys -->
+  <property name="sensorName">TERRASARX</property>
+  <property name="sensorname">TERRASARX</property>
+  <property name="sensor">TERRASARX</property>
+
+  <component name="reference">
+    <property name="headerfile1">/mnt/c/Users/JackE/supersite/kamchatka/tsx/TSX_20230423T194745.876_Kamchatka_C527_O087_D_R_SL016_SSC/dims_op_oc_dfd2_692868066_1/TSX-1.SAR.L1B/TSX1_SAR__SSC______SL_S_SRA_20230423T194745_20230423T194747/TSX1_SAR__SSC______SL_S_SRA_20230423T194745_20230423T194747.xml</property>
+    <property name="rslcfile1">/mnt/c/Users/JackE/supersite/kamchatka/tsx/TSX_20230423T194745.876_Kamchatka_C527_O087_D_R_SL016_SSC/dims_op_oc_dfd2_692868066_1/TSX-1.SAR.L1B/TSX1_SAR__SSC______SL_S_SRA_20230423T194745_20230423T194747/IMAGEDATA/IMAGE_HH_SRA_spot_016.cos</property>
+  </component>
+
+  <component name="secondary">
+    <property name="headerfile2">/mnt/c/Users/JackE/supersite/kamchatka/tsx/TSX_20230504T194746.452_Kamchatka_C528_O087_D_R_SL016_SSC/dims_op_oc_dfd2_692868066_1/TSX-1.SAR.L1B/TSX1_SAR__SSC______SL_S_SRA_20230504T194746_20230504T194748/TSX1_SAR__SSC______SL_S_SRA_20230504T194746_20230504T194748.xml</property>
+    <property name="rslcfile2">/mnt/c/Users/JackE/supersite/kamchatka/tsx/TSX_20230504T194746.452_Kamchatka_C528_O087_D_R_SL016_SSC/dims_op_oc_dfd2_692868066_1/TSX-1.SAR.L1B/TSX1_SAR__SSC______SL_S_SRA_20230504T194746_20230504T194748/IMAGEDATA/IMAGE_HH_SRA_spot_016.cos</property>
+  </component>
+
+  <property name="demFilename">/home/jehayes/supersite/refdem/shiv_dome_utm.tif</property>
+  <property name="rangeLooks">4</property>
+  <property name="azimuthLooks">8</property>
+  <property name="dounwrap">true</property>
+  <property name="unwrapperName">snaphu</property>
+  <property name="geocodelist">['interferogram','coherence']</property>
+  <property name="geocodeBoundingBox">39.1,39.35,-159.5,-159.0</property>
+  <property name="posting">0.0001</property>
+</insarApp>
+
+
+
+
